@@ -22,7 +22,7 @@
 #include "main.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "FreeRTOS.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -73,6 +73,12 @@ void HAL_MspInit(void)
   /* System interrupt init*/
 
   /* USER CODE BEGIN MspInit 1 */
+
+  // This initializes a variable which is related to priority grouping
+  // This initialization is actually done by the scheduler, but the problem
+  // is that the priority grouping initialization is required for the SEGGER
+  // start function.
+  vInitPrioGroupValue();
 
   /* USER CODE END MspInit 1 */
 }
