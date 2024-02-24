@@ -34,6 +34,7 @@ extern "C" {
 #include "freeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "timers.h"
 
 /* USER CODE END Includes */
 
@@ -46,6 +47,24 @@ typedef struct
 	uint8_t buffSize;
 
 } cmd_t;
+
+typedef enum
+{
+	MAIN_MENU,
+	LED_EFFECT,
+	RTC_MENU,
+	RTC_CONF_TIME,
+	RTC_CONF_DATE,
+	RTC_REPORT
+} state_t;
+
+typedef enum
+{
+
+	LED,
+	DATA_TIME,
+	EXIT
+} operation_t;
 
 /* USER CODE END ET */
 
@@ -69,6 +88,14 @@ void printTask (void* pvParameters);
 void ledTask (void* pvParameters);
 void rtcTask (void* pvParameters);
 
+void ledEffectStop(void);
+void ledEffectStart(uint32_t opt);
+
+void ledEffect1(void);
+void ledEffect2(void);
+void ledEffect3(void);
+void ledEffect4(void);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
@@ -85,7 +112,13 @@ void rtcTask (void* pvParameters);
 #define SWO_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+#define LED1_GPIO_PORT GPIOC
+#define LED2_GPIO_PORT GPIOC
+#define LED3_GPIO_PORT GPIOB
 
+#define LED1 GPIO_PIN_0
+#define LED2 GPIO_PIN_1
+#define LED3 GPIO_PIN_0
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

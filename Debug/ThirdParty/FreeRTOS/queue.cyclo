@@ -28,3 +28,4 @@
 ../ThirdParty/FreeRTOS/queue.c:2770:10:vQueueAddToRegistry	8
 ../ThirdParty/FreeRTOS/queue.c:2817:18:pcQueueGetName	4
 ../ThirdParty/FreeRTOS/queue.c:2848:10:vQueueUnregisterQueue	4
+../ThirdParty/FreeRTOS/queue.c:2881:10:vQueueWaitForMessageRestricted	4

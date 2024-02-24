@@ -267,7 +267,7 @@ extern "C" {
 *  Modification 1024 * 4
 */
 #ifndef   SEGGER_SYSVIEW_RTT_BUFFER_SIZE
-  #define SEGGER_SYSVIEW_RTT_BUFFER_SIZE          (1024 * 10)
+  #define SEGGER_SYSVIEW_RTT_BUFFER_SIZE          (1024 * 5)
 #endif
 
 /*********************************************************************

@@ -36,6 +36,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define DWT_CTRL (*(volatile uint32_t*)0xE0001000)
+#define NUM_TIMERS 4
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,6 +50,7 @@ RTC_HandleTypeDef hrtc;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+
 TaskHandle_t xMenuTask;
 TaskHandle_t xCmdTask;
 TaskHandle_t xPrintTask;
@@ -57,6 +59,8 @@ TaskHandle_t xRtcTask;
 
 QueueHandle_t xDataQueue;
 QueueHandle_t xPrintQueue;
+
+TimerHandle_t xLedTimerList[NUM_TIMERS];
 
 uint8_t rxData;
 /* USER CODE END PV */
@@ -67,7 +71,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
-
+void vLedEffectCB (TimerHandle_t xTimer);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -115,33 +119,47 @@ int main(void)
    * Access: Read/Write
    * Reset State: 0x40000000
   */
-//  DWT_CTRL |= (1 << 0);
-//
-//  SEGGER_SYSVIEW_Conf();
-//  SEGGER_SYSVIEW_Start();
+  DWT_CTRL |= (1 << 0);
+
+  SEGGER_SYSVIEW_Conf();
+  SEGGER_SYSVIEW_Start();
 
 
-  xStatus = xTaskCreate(menuTask, "MENU", 100, NULL, 2, &xMenuTask);
+  /* In FreeRTOS stack is not in bytes, but in sizeof(StackType_t) which is 4 on ARM ports.       */
+  /* Stack size should be therefore 4 byte aligned in order to avoid division caused side effects */
+
+  uint32_t stackSize = (1024 * 1);
+  uint32_t stack = stackSize / sizeof(StackType_t);
+
+
+  xStatus = xTaskCreate(menuTask, "MENU", (uint16_t)stack, (void *)&xPrintQueue, 2, &xMenuTask);
   configASSERT(xStatus == pdPASS);
 
-  xStatus = xTaskCreate(cmdTask, "CMD", 100, (void *)&xDataQueue, 2, &xCmdTask);
+  xStatus = xTaskCreate(cmdTask, "CMD", (uint16_t)stack, (void *)&xDataQueue, 2, &xCmdTask);
   configASSERT(xStatus == pdPASS);
 
-  xStatus = xTaskCreate(printTask, "PRINT", 100, NULL, 2, &xPrintTask);
+  xStatus = xTaskCreate(printTask, "PRINT", (uint16_t)stack, (void *)&xPrintQueue, 2, &xPrintTask);
   configASSERT(xStatus == pdPASS);
 
-  xStatus = xTaskCreate(rtcTask, "RTC", 100, NULL, 2, &xRtcTask);
+  xStatus = xTaskCreate(rtcTask, "RTC", (uint16_t)stack, (void *)&xPrintQueue, 2, &xRtcTask);
   configASSERT(xStatus == pdPASS);
 
-  xStatus = xTaskCreate(ledTask, "LED", 100, NULL, 2, &xLedTask);
+  xStatus = xTaskCreate(ledTask, "LED", (uint16_t)stack, (void *)&xPrintQueue, 2, &xLedTask);
   configASSERT(xStatus == pdPASS);
 
   xDataQueue = xQueueCreate(16, sizeof(char));
   configASSERT(xDataQueue != NULL);
 
-  // String Queue (item size equal to a pointer)
+  // String Queue (item size equal to a pointer pointing to a string)
   xPrintQueue = xQueueCreate(16, sizeof(size_t));
   configASSERT(xPrintQueue != NULL);
+
+  // Software timers for LED effects
+  for(uint8_t idx = 0; idx < NUM_TIMERS; idx++)
+  {
+	  xLedTimerList[idx] = xTimerCreate("LED_TIMER", pdMS_TO_TICKS(500), pdTRUE, (void*)(idx+1), vLedEffectCB);
+	  configASSERT( xLedTimerList[idx] );
+  }
 
   HAL_UART_Receive_IT(&huart2, &rxData, 1);
 
@@ -380,7 +398,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   {
 	  if(rxData == 0x0D) // \r in ASCII table - end of data
 	  {
-		  // force the last byte as Line Feed
+		  // force the last byte as \r
 		  xQueueReceiveFromISR(xDataQueue, (void *)&dummy, NULL);
 		  xQueueSendFromISR(xDataQueue, (void *)&rxData, NULL);
 	  }
@@ -397,6 +415,73 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 }
 
+// Define a callback function that will be used by multiple timer instance
+void vLedEffectCB (TimerHandle_t xTimer)
+{
+	/* Optionally do something if the pxTimer parameter is NULL. */
+	configASSERT( xTimer );
+
+	uint32_t id = (uint32_t) pvTimerGetTimerID( xTimer );
+
+	switch(id)
+	{
+		case 1: {
+			ledEffect1();
+		break;
+		}
+
+		case 2: {
+
+		break;
+		}
+
+		case 3: {
+
+		break;
+		}
+
+		case 4: {
+
+		break;
+		}
+
+		default:
+			break;
+	}
+}
+
+void ledEffectStop(void)
+{
+	for(uint8_t idx; idx < NUM_TIMERS; idx++)
+	{
+	  xTimerStop(xLedTimerList[idx], portMAX_DELAY);
+	}
+}
+
+void ledEffectStart(uint32_t opt)
+{
+	ledEffectStop();
+	xTimerStart(xLedTimerList[opt - 1], portMAX_DELAY);
+}
+
+
+/* External Idle and Timer task static memory allocation functions */
+extern void vApplicationGetTimerTaskMemory (StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize);
+
+
+/* Timer task control block and stack */
+static StaticTask_t Timer_TCB;
+static StackType_t  Timer_Stack[configTIMER_TASK_STACK_DEPTH];
+
+/*
+  vApplicationGetTimerTaskMemory gets called when configSUPPORT_STATIC_ALLOCATION
+  equals to 1 and is required for static memory allocation support.
+*/
+void vApplicationGetTimerTaskMemory (StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize) {
+  *ppxTimerTaskTCBBuffer   = &Timer_TCB;
+  *ppxTimerTaskStackBuffer = &Timer_Stack[0];
+  *pulTimerTaskStackSize   = (uint32_t)configTIMER_TASK_STACK_DEPTH;
+}
 /* USER CODE END 4 */
 
 /**
