@@ -22,9 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
-#include "freeRTOS.h"
 #include "FreeRTOSConfig.h"
-#include "task.h"
 
 #include "SEGGER_RTT.h"
 #include "SEGGER_SYSVIEW.h"
@@ -37,7 +35,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define DWT_CTRL (*(volatile uint32_t*)0xE0001000)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,19 +44,29 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+RTC_HandleTypeDef hrtc;
+
+UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-#define DWT_CTRL (*(volatile uint32_t*)0xE0001000)
+TaskHandle_t xMenuTask;
+TaskHandle_t xCmdTask;
+TaskHandle_t xPrintTask;
+TaskHandle_t xLedTask;
+TaskHandle_t xRtcTask;
+
+QueueHandle_t xDataQueue;
+QueueHandle_t xPrintQueue;
+
+uint8_t rxData;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_USART2_UART_Init(void);
+static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
-
-static void led_1_task(void* pvParameters);
-static void led_2_task(void* pvParameters);
-static void led_3_task(void* pvParameters);
 
 /* USER CODE END PFP */
 
@@ -75,9 +83,6 @@ static void led_3_task(void* pvParameters);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	TaskHandle_t xTask1;
-	TaskHandle_t xTask2;
-	TaskHandle_t xTask3;
 	BaseType_t xStatus;
   /* USER CODE END 1 */
 
@@ -99,6 +104,8 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_USART2_UART_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
 //  HAL_PWR_EnableSleepOnExit();
@@ -108,28 +115,41 @@ int main(void)
    * Access: Read/Write
    * Reset State: 0x40000000
   */
-  DWT_CTRL |= (1 << 0);
+//  DWT_CTRL |= (1 << 0);
+//
+//  SEGGER_SYSVIEW_Conf();
+//  SEGGER_SYSVIEW_Start();
 
-  SEGGER_SYSVIEW_Conf();
-  SEGGER_SYSVIEW_Start();
 
-
-  xStatus = xTaskCreate(led_1_task, "LED1", 200, NULL, 2, &xTask1);
+  xStatus = xTaskCreate(menuTask, "MENU", 100, NULL, 2, &xMenuTask);
   configASSERT(xStatus == pdPASS);
 
-  xStatus = xTaskCreate(led_2_task, "LED2", 200, NULL, 2, &xTask2);
+  xStatus = xTaskCreate(cmdTask, "CMD", 100, (void *)&xDataQueue, 2, &xCmdTask);
   configASSERT(xStatus == pdPASS);
 
-  xStatus = xTaskCreate(led_3_task, "LED3", 200, NULL, 2, &xTask3);
+  xStatus = xTaskCreate(printTask, "PRINT", 100, NULL, 2, &xPrintTask);
   configASSERT(xStatus == pdPASS);
 
+  xStatus = xTaskCreate(rtcTask, "RTC", 100, NULL, 2, &xRtcTask);
+  configASSERT(xStatus == pdPASS);
+
+  xStatus = xTaskCreate(ledTask, "LED", 100, NULL, 2, &xLedTask);
+  configASSERT(xStatus == pdPASS);
+
+  xDataQueue = xQueueCreate(16, sizeof(char));
+  configASSERT(xDataQueue != NULL);
+
+  // String Queue (item size equal to a pointer)
+  xPrintQueue = xQueueCreate(16, sizeof(size_t));
+  configASSERT(xPrintQueue != NULL);
+
+  HAL_UART_Receive_IT(&huart2, &rxData, 1);
 
   // start the freeRTOS scheduler
    vTaskStartScheduler();
 
   // if the control comes here, then the launch of the scheduler has
   // failed due to insufficient memory in heap
-
 
   /* USER CODE END 2 */
 
@@ -164,9 +184,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 1;
@@ -192,6 +213,77 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
+}
+
+/**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
 }
 
 /**
@@ -233,14 +325,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA2 PA3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
   /*Configure GPIO pin : LD2_Pin */
   GPIO_InitStruct.Pin = LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -257,9 +341,13 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PA10 */
   GPIO_InitStruct.Pin = GPIO_PIN_10;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 6, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
@@ -267,44 +355,46 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-static void led_1_task(void* pvParameters)
+/**
+  * @brief  Rx Transfer completed callback.
+  * @param  huart UART handle.
+  * @retval None
+  */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
+  /* Prevent unused argument(s) compilation warning */
+  UNUSED(huart);
 
-	while(1)
-	{
-		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_0);
+  /* NOTE : This function should not be modified, when the callback is needed,
+            the HAL_UART_RxCpltCallback can be implemented in the user file.
+  */
 
-		vTaskDelay(xDelay); // 	Periodic task with vTaskDelau()
-	}
-}
+  uint8_t dummy;
 
-static void led_2_task(void* pvParameters)
-{
-	const TickType_t xDelay = 800 / portTICK_PERIOD_MS;
+  if(xQueueIsQueueFullFromISR(xDataQueue) == pdFALSE)
+  {
+	  // enqueue data
+	  xQueueSendFromISR(xDataQueue, (void *)&rxData, NULL);
+  }
+  else
+  {
+	  if(rxData == 0x0D) // \r in ASCII table - end of data
+	  {
+		  // force the last byte as Line Feed
+		  xQueueReceiveFromISR(xDataQueue, (void *)&dummy, NULL);
+		  xQueueSendFromISR(xDataQueue, (void *)&rxData, NULL);
+	  }
+  }
 
-	while(1)
-	{
-		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_1);
+  if(rxData == 0x0D) // \r in ASCII table - end of data
+  {
+	  // send notification to cmdTask
+	  xTaskNotifyFromISR(xCmdTask, 0, eNoAction, NULL);
+  }
 
-		vTaskDelay(xDelay); // 	Periodic task with vTaskDelau()
-	}
-}
+  // enable UART data byte reception again in IT mode
+  HAL_UART_Receive_IT(&huart2, &rxData, 1);
 
-static void led_3_task(void* pvParameters)
-{
-	while(1)
-	{
-		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
-
-		vTaskDelay(pdMS_TO_TICKS(400));  // 	Periodic task with vTaskDelau()
-	}
-}
-
-void vApplicationIdleHook( void )
-{
-	// Enter low-power mode
-	HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
 }
 
 /* USER CODE END 4 */

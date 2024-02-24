@@ -31,11 +31,21 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "freeRTOS.h"
+#include "task.h"
+#include "queue.h"
 
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+
+typedef struct
+{
+	uint8_t buff[16];
+	uint8_t buffSize;
+
+} cmd_t;
 
 /* USER CODE END ET */
 
@@ -53,6 +63,11 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void menuTask (void* pvParameters);
+void cmdTask (void* pvParameters);
+void printTask (void* pvParameters);
+void ledTask (void* pvParameters);
+void rtcTask (void* pvParameters);
 
 /* USER CODE END EFP */
 
