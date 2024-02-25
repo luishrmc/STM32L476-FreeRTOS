@@ -72,8 +72,11 @@
 #define configQUEUE_REGISTRY_SIZE                8
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION  1
 
+// using counting semaphores
+#define configUSE_COUNTING_SEMAPHORES 			 1
+
 // using timers
-#define configUSE_TIMERS                         1
+#define configUSE_TIMERS                         0
 #define configTIMER_TASK_PRIORITY				 ( 2 )
 #define configTIMER_QUEUE_LENGTH				 4
 #define configTIMER_TASK_STACK_DEPTH			 64

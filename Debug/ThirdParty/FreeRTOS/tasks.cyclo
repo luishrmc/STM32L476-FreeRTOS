@@ -12,7 +12,7 @@
 ../ThirdParty/FreeRTOS/tasks.c:1790:23:prvTaskIsTaskSuspended	5
 ../ThirdParty/FreeRTOS/tasks.c:1836:10:vTaskResume	6
 ../ThirdParty/FreeRTOS/tasks.c:1890:16:xTaskResumeFromISR	5
-../ThirdParty/FreeRTOS/tasks.c:1965:6:vTaskStartScheduler	6
+../ThirdParty/FreeRTOS/tasks.c:1965:6:vTaskStartScheduler	5
 ../ThirdParty/FreeRTOS/tasks.c:2090:6:vTaskEndScheduler	1
 ../ThirdParty/FreeRTOS/tasks.c:2101:6:vTaskSuspendAll	1
 ../ThirdParty/FreeRTOS/tasks.c:2185:12:xTaskResumeAll	13
@@ -28,7 +28,6 @@
 ../ThirdParty/FreeRTOS/tasks.c:3020:6:vTaskSwitchContext	5
 ../ThirdParty/FreeRTOS/tasks.c:3094:6:vTaskPlaceOnEventList	2
 ../ThirdParty/FreeRTOS/tasks.c:3119:6:vTaskPlaceOnUnorderedEventList	3
-../ThirdParty/FreeRTOS/tasks.c:3147:10:vTaskPlaceOnEventListRestricted	3
 ../ThirdParty/FreeRTOS/tasks.c:3180:12:xTaskRemoveFromEventList	6
 ../ThirdParty/FreeRTOS/tasks.c:3248:6:vTaskRemoveFromUnorderedEventList	6
 ../ThirdParty/FreeRTOS/tasks.c:3297:6:vTaskSetTimeOutState	2

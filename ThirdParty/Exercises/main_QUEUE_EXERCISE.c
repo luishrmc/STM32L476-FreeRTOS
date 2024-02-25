@@ -36,6 +36,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define DWT_CTRL (*(volatile uint32_t*)0xE0001000)
+#define NUM_TIMERS 4
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -44,29 +45,33 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+RTC_HandleTypeDef hrtc;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+
+TaskHandle_t xMenuTask;
+TaskHandle_t xCmdTask;
+TaskHandle_t xPrintTask;
+TaskHandle_t xLedTask;
+TaskHandle_t xRtcTask;
+
+QueueHandle_t xDataQueue;
+QueueHandle_t xPrintQueue;
+
+TimerHandle_t xLedTimerList[NUM_TIMERS];
+
 uint8_t rxData;
-char userMsg[256] = {};
-
-TaskHandle_t xTask1;
-TaskHandle_t xTask2;
-
-SemaphoreHandle_t xMutexSemaphore;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
-
-static void vTask1( void* pvParameters );
-static void vTask2( void* pvParameters );
-
-void vSoftwareInterruptHandler( void );
-void printMsg( char* msg );
+void vLedEffectCB (TimerHandle_t xTimer);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -104,6 +109,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
 //  HAL_PWR_EnableSleepOnExit();
@@ -126,20 +132,36 @@ int main(void)
   uint32_t stack = stackSize / sizeof(StackType_t);
 
 
-  xStatus = xTaskCreate(vTask1, "Task1", (uint16_t)stack, NULL, 2, &xTask1);
+  xStatus = xTaskCreate(menuTask, "MENU", (uint16_t)stack, (void *)&xPrintQueue, 2, &xMenuTask);
   configASSERT(xStatus == pdPASS);
 
-  xStatus = xTaskCreate(vTask2, "Task2", (uint16_t)stack, NULL, 2, &xTask2);
+  xStatus = xTaskCreate(cmdTask, "CMD", (uint16_t)stack, (void *)&xDataQueue, 2, &xCmdTask);
   configASSERT(xStatus == pdPASS);
 
-  /* Attempt to create a semaphore. */
-  xMutexSemaphore = xSemaphoreCreateMutex();
+  xStatus = xTaskCreate(printTask, "PRINT", (uint16_t)stack, (void *)&xPrintQueue, 2, &xPrintTask);
+  configASSERT(xStatus == pdPASS);
 
-  /* The semaphore is created in the 'empty' state, meaning the semaphore
-  	 * must first be given using the xSemaphoreGive() API function before it
-  	 * can subsequently be taken (obtained) using the xSemaphoreTake() function.
-  	 * */
-  	xSemaphoreGive( xMutexSemaphore );
+  xStatus = xTaskCreate(rtcTask, "RTC", (uint16_t)stack, (void *)&xPrintQueue, 2, &xRtcTask);
+  configASSERT(xStatus == pdPASS);
+
+  xStatus = xTaskCreate(ledTask, "LED", (uint16_t)stack, (void *)&xPrintQueue, 2, &xLedTask);
+  configASSERT(xStatus == pdPASS);
+
+  xDataQueue = xQueueCreate(16, sizeof(char));
+  configASSERT(xDataQueue != NULL);
+
+  // String Queue (item size equal to a pointer pointing to a string)
+  xPrintQueue = xQueueCreate(16, sizeof(size_t));
+  configASSERT(xPrintQueue != NULL);
+
+  // Software timers for LED effects
+  for(uint8_t idx = 0; idx < NUM_TIMERS; idx++)
+  {
+	  xLedTimerList[idx] = xTimerCreate("LED_TIMER", pdMS_TO_TICKS(500), pdTRUE, (void*)(idx+1), vLedEffectCB);
+	  configASSERT( xLedTimerList[idx] );
+  }
+
+  HAL_UART_Receive_IT(&huart2, &rxData, 1);
 
   // start the freeRTOS scheduler
    vTaskStartScheduler();
@@ -180,9 +202,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 1;
@@ -208,6 +231,42 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
 }
 
 /**
@@ -314,62 +373,155 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-static void vTask1( void* pvParameters )
+/**
+  * @brief  Rx Transfer completed callback.
+  * @param  huart UART handle.
+  * @retval None
+  */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
+  /* Prevent unused argument(s) compilation warning */
+  UNUSED(huart);
 
-	while(1)
-	{
-		// before printing, take the semaphore
-		xSemaphoreTake( xMutexSemaphore, portMAX_DELAY );
+  /* NOTE : This function should not be modified, when the callback is needed,
+            the HAL_UART_RxCpltCallback can be implemented in the user file.
+  */
 
-		sprintf(userMsg, "Task 1 is running\r\n");
-		printMsg(userMsg);
+  uint8_t dummy;
 
-		xSemaphoreGive( xMutexSemaphore );
-		vTaskDelay( pdMS_TO_TICKS(500) );
-	}
+  if(xQueueIsQueueFullFromISR(xDataQueue) == pdFALSE)
+  {
+	  // enqueue data
+	  xQueueSendFromISR(xDataQueue, (void *)&rxData, NULL);
+  }
+  else
+  {
+	  if(rxData == 0x0D) // \r in ASCII table - end of data
+	  {
+		  // force the last byte as \r
+		  xQueueReceiveFromISR(xDataQueue, (void *)&dummy, NULL);
+		  xQueueSendFromISR(xDataQueue, (void *)&rxData, NULL);
+	  }
+  }
+
+  if(rxData == 0x0D) // \r in ASCII table - end of data
+  {
+	  // send notification to cmdTask
+	  xTaskNotifyFromISR(xCmdTask, 0, eNoAction, NULL);
+  }
+
+  // enable UART data byte reception again in IT mode
+  HAL_UART_Receive_IT(&huart2, &rxData, 1);
+
 }
 
-static void vTask2( void* pvParameters )
-{
-
-	while(1)
-	{
-		// before printing, take the semaphore
-		xSemaphoreTake( xMutexSemaphore, portMAX_DELAY );
-
-		sprintf(userMsg, "Task 2 is running\r\n");
-		printMsg(userMsg);
-
-		xSemaphoreGive( xMutexSemaphore );
-		vTaskDelay( pdMS_TO_TICKS(500) );
-	}
-}
-
-void printMsg(char* msg)
+void printMsg(uint32_t* msg)
 {
 	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen((char*)msg), HAL_MAX_DELAY);
 }
 
-#if (configUSE_TIMERS == 1)
-	/* External Idle and Timer task static memory allocation functions */
-	extern void vApplicationGetTimerTaskMemory (StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize);
+// Define a callback function that will be used by multiple timer instance
+void vLedEffectCB (TimerHandle_t xTimer)
+{
+	/* Optionally do something if the pxTimer parameter is NULL. */
+	configASSERT( xTimer );
 
+	uint32_t id = (uint32_t) pvTimerGetTimerID( xTimer );
 
-	/* Timer task control block and stack */
-	static StaticTask_t Timer_TCB;
-	static StackType_t  Timer_Stack[configTIMER_TASK_STACK_DEPTH];
+	switch(id)
+	{
+		case 1: {
+			ledEffect1();
+		break;
+		}
 
-	/*
-	  vApplicationGetTimerTaskMemory gets called when configSUPPORT_STATIC_ALLOCATION
-	  equals to 1 and is required for static memory allocation support.
-	*/
-	void vApplicationGetTimerTaskMemory (StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize) {
-	  *ppxTimerTaskTCBBuffer   = &Timer_TCB;
-	  *ppxTimerTaskStackBuffer = &Timer_Stack[0];
-	  *pulTimerTaskStackSize   = (uint32_t)configTIMER_TASK_STACK_DEPTH;
+		case 2: {
+			ledEffect2();
+		break;
+		}
+
+		case 3: {
+			ledEffect3();
+		break;
+		}
+
+		case 4: {
+			ledEffect4();
+		break;
+		}
+
+		default:
+			break;
 	}
-#endif
+}
+
+void ledEffectStop(void)
+{
+	ledEffectTurnAllOff();
+	for(uint8_t idx = 0; idx < NUM_TIMERS; idx++)
+	{
+	  xTimerStop(xLedTimerList[idx], portMAX_DELAY);
+	}
+}
+
+void ledEffectStart(uint32_t opt)
+{
+	ledEffectStop();
+	xTimerStart(xLedTimerList[opt - 1], portMAX_DELAY);
+}
+
+void rtcShowTimeAndData(void)
+{
+	static char* showTime[40];
+	static char* showDate[40];
+
+	RTC_DateTypeDef rtcDate;
+	RTC_TimeTypeDef rtcTime;
+
+	memset(&rtcDate, 0, sizeof(rtcDate));
+	memset(&showTime, 0, sizeof(showTime));
+
+	HAL_RTC_GetTime(&hrtc, &rtcTime, RTC_FORMAT_BIN);
+	HAL_RTC_GetDate(&hrtc, &rtcDate, RTC_FORMAT_BIN);
+
+	char* format = (rtcTime.TimeFormat == RTC_HOURFORMAT12_AM ? "AM" : "PM");
+
+	//send to Queue
+	sprintf((char*)showTime, "%s:\t%02d:%02d:%02d: [%s]", "\r\nCurrent Time&Date", rtcTime.Hours, rtcTime.Minutes, rtcTime.Seconds, format);
+	sprintf((char*)showDate, "\t%02d-%02d-%02d\r\n", rtcDate.Month, rtcDate.Date, rtcDate.Year + 2000);
+}
+
+void rtcConfigTime(RTC_TimeTypeDef* time)
+{
+	time->TimeFormat = RTC_HOURFORMAT12_AM;
+	time->DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+	time->StoreOperation = RTC_STOREOPERATION_RESET;
+
+	HAL_RTC_SetTime(&hrtc, time, RTC_FORMAT_BIN);
+}
+
+void rtcConfigDate(RTC_DateTypeDef* date)
+{
+	HAL_RTC_SetDate(&hrtc, date, RTC_FORMAT_BIN);
+}
+
+/* External Idle and Timer task static memory allocation functions */
+extern void vApplicationGetTimerTaskMemory (StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize);
+
+
+/* Timer task control block and stack */
+static StaticTask_t Timer_TCB;
+static StackType_t  Timer_Stack[configTIMER_TASK_STACK_DEPTH];
+
+/*
+  vApplicationGetTimerTaskMemory gets called when configSUPPORT_STATIC_ALLOCATION
+  equals to 1 and is required for static memory allocation support.
+*/
+void vApplicationGetTimerTaskMemory (StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize) {
+  *ppxTimerTaskTCBBuffer   = &Timer_TCB;
+  *ppxTimerTaskStackBuffer = &Timer_Stack[0];
+  *pulTimerTaskStackSize   = (uint32_t)configTIMER_TASK_STACK_DEPTH;
+}
 /* USER CODE END 4 */
 
 /**

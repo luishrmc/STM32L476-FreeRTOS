@@ -188,7 +188,7 @@ void printTask (void* pvParameters)
 		// stay blocked until some data is inserted into the queue
 		// getting the pointer of the string
 		xQueueReceive( (*(QueueHandle_t*)(pvParameters)), &msg, portMAX_DELAY );
-		printMsg(msg);
+//		printMsg(msg);
 	}
 }
 

@@ -50,10 +50,14 @@ UART_HandleTypeDef huart2;
 uint8_t rxData;
 char userMsg[256] = {};
 
-TaskHandle_t xTask1;
-TaskHandle_t xTask2;
+TaskHandle_t xManagerTask;
+TaskHandle_t xEmployeeTask;
 
-SemaphoreHandle_t xMutexSemaphore;
+SemaphoreHandle_t xWorkSemaphore;
+
+// this is the queue which manager uses to put the work ticket id
+QueueHandle_t xWorkQueue;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,11 +66,10 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
-static void vTask1( void* pvParameters );
-static void vTask2( void* pvParameters );
-
-void vSoftwareInterruptHandler( void );
+static void vManagerTask( void* pvParameters );
+static void vEmployeeTask( void* pvParameters );
 void printMsg( char* msg );
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -126,20 +129,16 @@ int main(void)
   uint32_t stack = stackSize / sizeof(StackType_t);
 
 
-  xStatus = xTaskCreate(vTask1, "Task1", (uint16_t)stack, NULL, 2, &xTask1);
+  xStatus = xTaskCreate(vManagerTask, "MANAGER", (uint16_t)stack, NULL, 2, &xManagerTask);
   configASSERT(xStatus == pdPASS);
 
-  xStatus = xTaskCreate(vTask2, "Task2", (uint16_t)stack, NULL, 2, &xTask2);
+  xStatus = xTaskCreate(vEmployeeTask, "EMPLOYEE", (uint16_t)stack, NULL, 2, &xEmployeeTask);
   configASSERT(xStatus == pdPASS);
 
   /* Attempt to create a semaphore. */
-  xMutexSemaphore = xSemaphoreCreateMutex();
+  xWorkSemaphore = xSemaphoreCreateBinary();
 
-  /* The semaphore is created in the 'empty' state, meaning the semaphore
-  	 * must first be given using the xSemaphoreGive() API function before it
-  	 * can subsequently be taken (obtained) using the xSemaphoreTake() function.
-  	 * */
-  	xSemaphoreGive( xMutexSemaphore );
+  xWorkQueue = xQueueCreate(1, sizeof(unsigned int));
 
   // start the freeRTOS scheduler
    vTaskStartScheduler();
@@ -314,35 +313,62 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-static void vTask1( void* pvParameters )
+static void vManagerTask( void* pvParameters )
 {
+	unsigned int xWorkTicketId;
+
+	portBASE_TYPE xStatus;
+
+	/* The semaphore is created in the 'empty' state, meaning the semaphore
+	 * must first be given using the xSemaphoreGive() API function before it
+	 * can subsequently be taken (obtained) using the xSemaphoreTake() function.
+	 * */
+	xSemaphoreGive( xWorkSemaphore );
 
 	while(1)
 	{
-		// before printing, take the semaphore
-		xSemaphoreTake( xMutexSemaphore, portMAX_DELAY );
+		xWorkTicketId = (rand() & 0x1FF);
 
-		sprintf(userMsg, "Task 1 is running\r\n");
-		printMsg(userMsg);
+		xStatus = xQueueSend( xWorkQueue, &xWorkTicketId, portMAX_DELAY );
 
-		xSemaphoreGive( xMutexSemaphore );
-		vTaskDelay( pdMS_TO_TICKS(500) );
+		if(xStatus == pdTRUE)
+		{
+			// manager notifying the employee by giving the semaphore
+			xSemaphoreGive( xWorkSemaphore );
+			// after assigning the work, just yield the processor
+			taskYIELD();
+		}
+
 	}
 }
 
-static void vTask2( void* pvParameters )
+static void vEmployeeTask( void* pvParameters )
 {
+	unsigned int xWorkTicketId;
+
+	portBASE_TYPE xStatus;
 
 	while(1)
 	{
-		// before printing, take the semaphore
-		xSemaphoreTake( xMutexSemaphore, portMAX_DELAY );
+		// employee tries to take the semaphore
+		xSemaphoreTake( xWorkSemaphore, portMAX_DELAY );
 
-		sprintf(userMsg, "Task 2 is running\r\n");
-		printMsg(userMsg);
+		// if we are here, the semaphore take was successful. So get the ticket id
+		// from the work queue
+		xStatus = xQueueReceive( xWorkQueue, &xWorkTicketId, 0 );
 
-		xSemaphoreGive( xMutexSemaphore );
-		vTaskDelay( pdMS_TO_TICKS(500) );
+		if(xStatus == pdTRUE)
+		{
+			sprintf(userMsg, "Employee task: Working on ticket id: %d\r\n", xWorkTicketId);
+			printMsg(userMsg);
+			vTaskDelay(xWorkTicketId);
+		}
+		else
+		{
+			// we did not receive anything from the queue
+			sprintf(userMsg, "Employee task: Queue is empty, nothing to do.\r\n");
+			printMsg(userMsg);
+		}
 	}
 }
 

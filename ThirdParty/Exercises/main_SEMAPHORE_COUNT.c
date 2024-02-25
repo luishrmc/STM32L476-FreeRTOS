@@ -50,10 +50,12 @@ UART_HandleTypeDef huart2;
 uint8_t rxData;
 char userMsg[256] = {};
 
-TaskHandle_t xTask1;
-TaskHandle_t xTask2;
+TaskHandle_t xHandlerTask;
+TaskHandle_t xPeriodicTask;
 
-SemaphoreHandle_t xMutexSemaphore;
+SemaphoreHandle_t xCountingSemaphore;
+
+uint8_t starInterrup = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,8 +64,8 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
-static void vTask1( void* pvParameters );
-static void vTask2( void* pvParameters );
+static void vHandlerTask( void* pvParameters );
+static void vPeriodicTask( void* pvParameters );
 
 void vSoftwareInterruptHandler( void );
 void printMsg( char* msg );
@@ -126,21 +128,16 @@ int main(void)
   uint32_t stack = stackSize / sizeof(StackType_t);
 
 
-  xStatus = xTaskCreate(vTask1, "Task1", (uint16_t)stack, NULL, 2, &xTask1);
+  xStatus = xTaskCreate(vHandlerTask, "Handler", (uint16_t)stack, NULL, 1, &xHandlerTask);
   configASSERT(xStatus == pdPASS);
 
-  xStatus = xTaskCreate(vTask2, "Task2", (uint16_t)stack, NULL, 2, &xTask2);
+  xStatus = xTaskCreate(vPeriodicTask, "Periodic", (uint16_t)stack, NULL, 3, &xPeriodicTask);
   configASSERT(xStatus == pdPASS);
 
   /* Attempt to create a semaphore. */
-  xMutexSemaphore = xSemaphoreCreateMutex();
+  xCountingSemaphore = xSemaphoreCreateCounting( 10 ,0 );
 
-  /* The semaphore is created in the 'empty' state, meaning the semaphore
-  	 * must first be given using the xSemaphoreGive() API function before it
-  	 * can subsequently be taken (obtained) using the xSemaphoreTake() function.
-  	 * */
-  	xSemaphoreGive( xMutexSemaphore );
-
+  starInterrup = 1;
   // start the freeRTOS scheduler
    vTaskStartScheduler();
 
@@ -314,36 +311,62 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-static void vTask1( void* pvParameters )
+static void vHandlerTask( void* pvParameters )
 {
 
 	while(1)
 	{
-		// before printing, take the semaphore
-		xSemaphoreTake( xMutexSemaphore, portMAX_DELAY );
-
-		sprintf(userMsg, "Task 1 is running\r\n");
-		printMsg(userMsg);
-
-		xSemaphoreGive( xMutexSemaphore );
-		vTaskDelay( pdMS_TO_TICKS(500) );
+		xSemaphoreTake( xCountingSemaphore, portMAX_DELAY);
+		SEGGER_SYSVIEW_PrintfTarget("Handler task - Processing event");
 	}
 }
 
-static void vTask2( void* pvParameters )
+static void vPeriodicTask( void* pvParameters )
 {
 
 	while(1)
 	{
-		// before printing, take the semaphore
-		xSemaphoreTake( xMutexSemaphore, portMAX_DELAY );
-
-		sprintf(userMsg, "Task 2 is running\r\n");
-		printMsg(userMsg);
-
-		xSemaphoreGive( xMutexSemaphore );
 		vTaskDelay( pdMS_TO_TICKS(500) );
+		SEGGER_SYSVIEW_PrintfTarget("Periodic task - Pending the Interrupt");
+		// pend the interrupt register
+		NVIC_SetPendingIRQ(EXTI15_10_IRQn);
 	}
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	/* Prevent unused argument(s) compilation warning */
+	/* NOTE: This function should not be modified, when the callback is needed,
+				 the HAL_GPIO_EXTI_Callback could be implemented in the user file
+		 */
+	UNUSED(GPIO_Pin);
+
+	if(starInterrup == 0)
+		return;
+
+	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+
+	traceISR_ENTER();
+
+	SEGGER_SYSVIEW_PrintfTarget("Button Handler");
+
+	xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+	xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+	xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+	xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+	xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+
+	traceISR_EXIT();
+
+	NVIC_ClearPendingIRQ(EXTI15_10_IRQn);
+
+	/*
+	 * The portEND_SWITCHING_ISR() macro forces the context switch form a ISR.
+	 * The taskYIELD() must never be called from an ISR!!!!
+	 * */
+
+	portEND_SWITCHING_ISR( !xHigherPriorityTaskWoken );
+
 }
 
 void printMsg(char* msg)

@@ -35,6 +35,7 @@ extern "C" {
 #include "task.h"
 #include "queue.h"
 #include "timers.h"
+#include "semphr.h"
 
 /* USER CODE END Includes */
 
@@ -96,8 +97,6 @@ void ledEffect2(void);
 void ledEffect3(void);
 void ledEffect4(void);
 void ledEffectTurnAllOff(void);
-
-void printMsg(uint32_t* msg);
 
 /* USER CODE END EFP */
 

@@ -133,7 +133,7 @@ int main(void)
   configASSERT(xStatus == pdPASS);
 
   /* Attempt to create a semaphore. */
-  xMutexSemaphore = xSemaphoreCreateMutex();
+  xMutexSemaphore = xSemaphoreCreateBinary();
 
   /* The semaphore is created in the 'empty' state, meaning the semaphore
   	 * must first be given using the xSemaphoreGive() API function before it
