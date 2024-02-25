@@ -23,7 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include "FreeRTOSConfig.h"
-
+#include <string.h>
 #include "SEGGER_RTT.h"
 #include "SEGGER_SYSVIEW.h"
 /* USER CODE END Includes */
@@ -415,6 +415,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 }
 
+void printMsg(uint32_t* msg)
+{
+	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen((char*)msg), HAL_MAX_DELAY);
+}
+
 // Define a callback function that will be used by multiple timer instance
 void vLedEffectCB (TimerHandle_t xTimer)
 {
@@ -431,17 +436,17 @@ void vLedEffectCB (TimerHandle_t xTimer)
 		}
 
 		case 2: {
-
+			ledEffect2();
 		break;
 		}
 
 		case 3: {
-
+			ledEffect3();
 		break;
 		}
 
 		case 4: {
-
+			ledEffect4();
 		break;
 		}
 
@@ -452,7 +457,8 @@ void vLedEffectCB (TimerHandle_t xTimer)
 
 void ledEffectStop(void)
 {
-	for(uint8_t idx; idx < NUM_TIMERS; idx++)
+	ledEffectTurnAllOff();
+	for(uint8_t idx = 0; idx < NUM_TIMERS; idx++)
 	{
 	  xTimerStop(xLedTimerList[idx], portMAX_DELAY);
 	}
@@ -464,6 +470,40 @@ void ledEffectStart(uint32_t opt)
 	xTimerStart(xLedTimerList[opt - 1], portMAX_DELAY);
 }
 
+void rtcShowTimeAndData(void)
+{
+	static char* showTime[40];
+	static char* showDate[40];
+
+	RTC_DateTypeDef rtcDate;
+	RTC_TimeTypeDef rtcTime;
+
+	memset(&rtcDate, 0, sizeof(rtcDate));
+	memset(&showTime, 0, sizeof(showTime));
+
+	HAL_RTC_GetTime(&hrtc, &rtcTime, RTC_FORMAT_BIN);
+	HAL_RTC_GetDate(&hrtc, &rtcDate, RTC_FORMAT_BIN);
+
+	char* format = (rtcTime.TimeFormat == RTC_HOURFORMAT12_AM ? "AM" : "PM");
+
+	//send to Queue
+	sprintf((char*)showTime, "%s:\t%02d:%02d:%02d: [%s]", "\r\nCurrent Time&Date", rtcTime.Hours, rtcTime.Minutes, rtcTime.Seconds, format);
+	sprintf((char*)showDate, "\t%02d-%02d-%02d\r\n", rtcDate.Month, rtcDate.Date, rtcDate.Year + 2000);
+}
+
+void rtcConfigTime(RTC_TimeTypeDef* time)
+{
+	time->TimeFormat = RTC_HOURFORMAT12_AM;
+	time->DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+	time->StoreOperation = RTC_STOREOPERATION_RESET;
+
+	HAL_RTC_SetTime(&hrtc, time, RTC_FORMAT_BIN);
+}
+
+void rtcConfigDate(RTC_DateTypeDef* date)
+{
+	HAL_RTC_SetDate(&hrtc, date, RTC_FORMAT_BIN);
+}
 
 /* External Idle and Timer task static memory allocation functions */
 extern void vApplicationGetTimerTaskMemory (StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize);

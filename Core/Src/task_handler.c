@@ -14,21 +14,21 @@ void setState(state_t newState);
 
 state_t state = MAIN_MENU;
 
-const char* msgMenu = "========================\n"
-			  	  	  "|         Menu         |\n"
-			  	  	  "========================\n"
-			  	  	  "LED Effect 		-> 	0\n"
-					  "Data and Time 	->	1\n"
-					  "Exit 			->	2\n"
+const char* msgMenu = "\r\n\r\n========================\r\n"
+			  	  	  "|         Menu         |\r\n"
+			  	  	  "========================\r\n"
+			  	  	  "LED Effect	-> 0\r\n"
+					  "Data and Time	-> 1\r\n"
+					  "Exit		-> 2\r\n"
 			  	  	  "Enter your choice here : ";
 
-const char* msgLed = "========================\n"
-			  	  	  "|      LED Effect     |\n"
-			  	  	  "========================\n"
-			  	  	  "(none, e1, e2, e3 ,e4)\n"
+const char* msgLed = "\r\n\r\n========================\r\n"
+			  	  	  "|      LED Effect     |\r\n"
+			  	  	  "========================\r\n"
+			  	  	  "(none, e1, e2, e3 ,e4)\r\n"
 			  	  	  "Enter your choice here : ";
 
-const char* msgInvalid = "////Invalid Option////\n";
+const char* msgInvalid = "\r\n\r\n////Invalid Option////\r\n\r\n";
 
 void menuTask (void* pvParameters)
 {
@@ -42,6 +42,7 @@ void menuTask (void* pvParameters)
 
 	while(1)
 	{
+		// sending the pointer of the string
 		xQueueSend((*(QueueHandle_t*)(pvParameters)), &msgMenu, portMAX_DELAY);
 
 		// wait until receive some notification with command address
@@ -75,13 +76,16 @@ void menuTask (void* pvParameters)
 					}
 
 					default:
+						// sending the pointer of the string
 						xQueueSend((*(QueueHandle_t*)(pvParameters)), &msgInvalid, portMAX_DELAY);
 						break;
 				}
 			}
 			else
 			{
+				// sending the pointer of the string
 				xQueueSend((*(QueueHandle_t*)(pvParameters)), &msgInvalid, portMAX_DELAY);
+				continue;
 			}
 		}
 
@@ -178,9 +182,13 @@ void cmdTask (void* pvParameters)
 
 void printTask (void* pvParameters)
 {
+	uint32_t* msg;
 	while(1)
 	{
-
+		// stay blocked until some data is inserted into the queue
+		// getting the pointer of the string
+		xQueueReceive( (*(QueueHandle_t*)(pvParameters)), &msg, portMAX_DELAY );
+		printMsg(msg);
 	}
 }
 
@@ -197,6 +205,9 @@ void ledTask (void* pvParameters)
 	{
 		//wait to run again when some other task notifies
 		xTaskNotifyWait(0,0, NULL, portMAX_DELAY);
+
+		// sending the pointer of the string
+		xQueueSend((*(QueueHandle_t*)(pvParameters)), &msgLed, portMAX_DELAY);
 
 		ret = xTaskNotifyWait(0,0, &cmdAddr, portMAX_DELAY);
 
@@ -220,13 +231,16 @@ void ledTask (void* pvParameters)
 
 				else if(! strcmp( (char*)cmd->buff , "e4"))
 					ledEffectStart(4);
+				else
+					xQueueSend((*(QueueHandle_t*)(pvParameters)), &msgInvalid, portMAX_DELAY);
 			}
 			else
 			{
+				// sending the pointer of the string
 				xQueueSend((*(QueueHandle_t*)(pvParameters)), &msgInvalid, portMAX_DELAY);
-				setState(MAIN_MENU);
-				xTaskNotify(xMenu, 0, eNoAction);
 			}
+			setState(MAIN_MENU);
+			xTaskNotify(xMenu, 0, eNoAction);
 		}
 	}
 }

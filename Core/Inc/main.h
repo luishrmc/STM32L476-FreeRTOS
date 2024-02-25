@@ -95,6 +95,9 @@ void ledEffect1(void);
 void ledEffect2(void);
 void ledEffect3(void);
 void ledEffect4(void);
+void ledEffectTurnAllOff(void);
+
+void printMsg(uint32_t* msg);
 
 /* USER CODE END EFP */
 
